@@ -19,7 +19,6 @@ from google.genai import types
 from bs4 import BeautifulSoup
 from gnews import GNews
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
-from sentence_transformers import SentenceTransformer, util
 
 # ================== SYSTEM SETUP ==================
 load_dotenv()  # loads GEMINI_API_KEY from .env
@@ -43,8 +42,6 @@ nlp_sentiment = pipeline(
     "sentiment-analysis", model=sentiment_model, tokenizer=tokenizer, device=device
 )
 
-# --- Engine 2: Semantic Similarity (MiniLM) – still loaded for potential future use ---
-similarity_model = SentenceTransformer("all-MiniLM-L6-v2", device=device)
 
 
 # ================== HELPER FUNCTIONS (unchanged) ==================

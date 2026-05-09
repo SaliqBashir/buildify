@@ -22,6 +22,7 @@ import {
   Filler,
 } from "chart.js";
 import { Line } from "react-chartjs-2";
+import Cookies from "js-cookie";
 
 ChartJS.register(
   CategoryScale,
@@ -53,7 +54,27 @@ export default function Predictor() {
 
   useEffect(() => {
     setMounted(true);
+    try {
+      const savedQueued = Cookies.get("predictor_queuedItems");
+      if (savedQueued) setQueuedItems(JSON.parse(savedQueued));
+      
+      const savedRegion = Cookies.get("predictor_inventoryRegion");
+      if (savedRegion) setInventoryRegion(savedRegion);
+      
+      const savedResults = Cookies.get("predictor_inventoryResults");
+      if (savedResults) setInventoryResults(JSON.parse(savedResults));
+    } catch (err) {
+      console.error("Failed to parse cookies", err);
+    }
   }, []);
+
+  useEffect(() => {
+    if (mounted) {
+      Cookies.set("predictor_queuedItems", JSON.stringify(queuedItems), { expires: 7 });
+      Cookies.set("predictor_inventoryRegion", inventoryRegion, { expires: 7 });
+      Cookies.set("predictor_inventoryResults", JSON.stringify(inventoryResults), { expires: 7 });
+    }
+  }, [queuedItems, inventoryRegion, inventoryResults, mounted]);
 
   const handleAddItem = (e) => {
     if (e && e.type === "keydown" && e.key !== "Enter") return;

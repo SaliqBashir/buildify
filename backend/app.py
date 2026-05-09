@@ -1,11 +1,11 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify
 from flask_cors import CORS
 import asyncio
-from crawl4ai import AsyncWebCrawler
+import requests
+from bs4 import BeautifulSoup
 from sentence_transformers import SentenceTransformer, util
 
 app = Flask(__name__)
-# Enable CORS so the Next.js frontend can communicate with it
 CORS(app)
 
 # Initialize model once at startup for performance
@@ -15,41 +15,47 @@ model = SentenceTransformer('all-MiniLM-L6-v2')
 MATERIAL_LOGIC = {
     "copper": ["Aluminium (Al) 1350", "PEX-B", "Stainless Steel 316L", "Silver (Ag)"],
     "rice": ["Sorghum (Milo)", "Pearl Millet (Bajra)", "Cassava-based Analog Rice", "Broken Maize"],
-    "steel": ["Aluminum 6061", "Carbon Fiber Composite", "Titanium Grade 5"]
+    "steel": ["Aluminum 6061", "Carbon Fiber Composite", "Titanium Grade 5"],
+    "cotton": ["Polyester", "Recycled PET Fiber", "Bamboo Fiber", "Hemp"],
+    "plastic": ["Bioplastic PLA", "Recycled HDPE", "Mycelium Composite"],
+    "aluminum": ["Magnesium Alloy", "Carbon Fiber Reinforced Polymer", "Titanium Grade 2"]
 }
 
-async def fetch_web_alternatives(target_material):
-    search_query = f"industrial {target_material} supply chain substitutes grades"
-    search_url = f"https://www.google.com/search?q={search_query.replace(' ', '+')}&udm=28"
-
-    async with AsyncWebCrawler() as crawler:
-        result = await crawler.arun(url=search_url)
-        content = result.markdown.raw_markdown if hasattr(result.markdown, 'raw_markdown') else str(result.markdown)
-        raw_lines = content.split('\n')
-
-        noise = ["google", "sign in", "privacy", "settings", "feedback", "images"]
-        web_candidates = [
-            line.strip() for line in raw_lines 
-            if 8 < len(line.strip()) < 90 and not any(n in line.lower() for n in noise)
-        ]
+def fetch_web_alternatives(target_material):
+    search_query = f"industrial {target_material} supply chain substitutes alternatives grades"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
+    web_candidates = []
+    try:
+        search_url = f"https://www.bing.com/search?q={search_query.replace(' ', '+')}"
+        response = requests.get(search_url, headers=headers, timeout=10)
+        soup = BeautifulSoup(response.text, "html.parser")
         
-        # Combine with DB logic
-        kb_options = MATERIAL_LOGIC.get(target_material.lower(), [])
-        return list(set(web_candidates + kb_options))
+        # Extract text snippets from search result descriptions
+        for tag in soup.find_all(["p", "li", "span"], limit=80):
+            text = tag.get_text(strip=True)
+            noise = ["bing", "microsoft", "sign in", "privacy", "settings", "feedback", "cookie", "©"]
+            if 8 < len(text) < 90 and not any(n in text.lower() for n in noise):
+                web_candidates.append(text)
+    except Exception as e:
+        print(f"Web fetch error: {e}")
+    
+    # Combine with Knowledge Base
+    kb_options = MATERIAL_LOGIC.get(target_material.lower(), [])
+    combined = list(set(web_candidates + kb_options))
+    return combined, kb_options
 
 @app.route('/api/alternatives/<material>', methods=['GET'])
 def get_alternatives(material):
     try:
-        # Run the async crawler inside the synchronous Flask route
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        all_options = loop.run_until_complete(fetch_web_alternatives(material))
-        loop.close()
+        all_options, kb_options = fetch_web_alternatives(material)
 
         if not all_options:
             return jsonify({"error": "No materials found"}), 404
 
-        # AI Ranking
+        # AI Ranking via semantic similarity
         all_embeddings = model.encode(all_options, convert_to_tensor=True)
         query_embedding = model.encode(material, convert_to_tensor=True)
         hits = util.semantic_search(query_embedding, all_embeddings, top_k=10)[0]
@@ -61,7 +67,7 @@ def get_alternatives(material):
                 results.append({
                     "name": name,
                     "score": round(float(hit['score']), 2),
-                    "is_kb": name in MATERIAL_LOGIC.get(material.lower(), [])
+                    "is_kb": name in kb_options
                 })
 
         return jsonify({
@@ -74,5 +80,4 @@ def get_alternatives(material):
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    # Threaded mode is important for handling the async loop calls
     app.run(debug=True, port=5000, threaded=True)

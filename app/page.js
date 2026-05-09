@@ -2,14 +2,12 @@
 
 import { useState, useMemo, useEffect } from "react";
 import dynamic from "next/dynamic";
-import { ApifyClient } from "apify-client";
 import {
   FaSearch,
   FaMapMarkerAlt,
   FaGlobe,
   FaBuilding,
   FaFilter,
-  FaLeaf,
   FaAward,
   FaTimes,
   FaCheckSquare,
@@ -22,17 +20,17 @@ import {
   FaMapMarkedAlt,
 } from "react-icons/fa";
 import { FaScaleBalanced } from "react-icons/fa6";
-import { BsStars, BsShieldCheck, BsBoxSeam } from "react-icons/bs";
+import { BsStars, BsBoxSeam } from "react-icons/bs";
 import CompanyIntelligenceCard from "@/app/components/CompanyIntelligenceCard";
 import ContactSupplierModal from "@/app/components/ContactSupplierModal";
 import Navigation from "@/app/components/Navigation";
-import { rankSuppliers } from "@/lib/searchEngine";
-import { normalizeExporterItem } from "@/lib/supplierNormalize";
 import {
   findSimilarCompanies,
   deriveStrengths,
 } from "@/lib/companyIntelligence";
 import { matchesRevenueBand } from "@/lib/companyMetrics";
+
+const FLASK_BASE = process.env.NEXT_PUBLIC_FLASK_URL || "http://localhost:5001";
 
 const SupplierMapView = dynamic(
   () => import("@/app/components/SupplierMapView"),
@@ -47,37 +45,73 @@ function MapViewLoading() {
   );
 }
 
-const client = new ApifyClient({
-  token: process.env.NEXT_PUBLIC_APIFY_TOKEN || "",
-});
+/**
+ * Converts a raw Gemini supplier object (from Flask /api/find-suppliers)
+ * into the shape expected by CompanyIntelligenceCard and SupplierMapView.
+ */
+function normalizeGeminiSupplier(s, index) {
+  return {
+    id: `gemini-${s.id ?? index}`,
+    name: s.name,
+    address: s.address,
+    lat: s.lat,
+    lng: s.lng,
+    phone: s.phone || "Not listed",
+    email: s.email || "Not listed",
+    website: s.website || "#",
+    categories: s.specialties ?? [],
+    products: s.specialties ?? [],
+    certifications: [],
+    tags: s.specialties ?? [],
+    brands: [],
+    annualSales: "Not disclosed",
+    employeeString: "Not listed",
+    employees: 0,
+    yearFounded: "N/A",
+    yearsActive: null,
+    isEsg: false,
+    isIso: false,
+    logoUrl: null,
+    description: `${s.name} is a supplier specialising in ${(s.specialties ?? []).join(", ")} located at ${s.address}.`,
+    fitScore: Math.max(50, 90 - index * 6),
+    fitBreakdown: {
+      aiSemantic: Math.max(50, 90 - index * 6),
+      experience: 30,
+      size: 20,
+      brands: 15,
+    },
+  };
+}
 
 export default function SupplyChainIntelligence() {
   const [mounted, setMounted] = useState(false);
-  const [query, setQuery] = useState("");
+  const [material, setMaterial] = useState("");
+  const [locality, setLocality] = useState("");
   const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
 
-  // Advanced Filters
+  // Filters
   const [locationFilter, setLocationFilter] = useState("");
   const [minEmployees, setMinEmployees] = useState("");
+  const [maxEmployees, setMaxEmployees] = useState("");
   const [esgCertified, setEsgCertified] = useState(false);
   const [isoCertified, setIsoCertified] = useState(false);
   const [revenueFilter, setRevenueFilter] = useState("any");
-  const [maxEmployees, setMaxEmployees] = useState("");
   const [minYearsActive, setMinYearsActive] = useState("");
 
-  // Comparison & View State
+  // Comparison & view state
   const [selectedForCompare, setSelectedForCompare] = useState([]);
   const [showMatrixModal, setShowMatrixModal] = useState(false);
   const [compareModalTab, setCompareModalTab] = useState("scores");
   const [resultsView, setResultsView] = useState("grid");
 
-  // Navigation State
+  // Profile navigation
   const [activeSupplierProfile, setActiveSupplierProfile] = useState(null);
-  const [savedScrollPos, setSavedScrollPos] = useState(0); // 🔥 New state for scroll tracking
+  const [savedScrollPos, setSavedScrollPos] = useState(0);
 
-  // Contact Modal State
+  // Contact modal
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   const [contactModalCompany, setContactModalCompany] = useState(null);
 
@@ -85,200 +119,70 @@ export default function SupplyChainIntelligence() {
     setMounted(true);
   }, []);
 
-  // 🔥 Smart Routing Handlers
+  // ── Profile routing ──────────────────────────────────────────────────────────
   const handleOpenProfile = (supplier) => {
-    // Only save the scroll position if we are coming from the main search page
-    if (!activeSupplierProfile) {
-      setSavedScrollPos(window.scrollY);
-    }
+    if (!activeSupplierProfile) setSavedScrollPos(window.scrollY);
     setActiveSupplierProfile(supplier);
-    // Instantly snap to the top of the new page
     window.scrollTo({ top: 0, behavior: "instant" });
   };
 
   const handleCloseProfile = () => {
     setActiveSupplierProfile(null);
-    // Use a tiny timeout to wait for the Search Results DOM to physically render before scrolling
-    setTimeout(() => {
-      window.scrollTo({ top: savedScrollPos, behavior: "instant" });
-    }, 10);
+    setTimeout(
+      () => window.scrollTo({ top: savedScrollPos, behavior: "instant" }),
+      10,
+    );
   };
 
+  // ── Fetch from Flask ─────────────────────────────────────────────────────────
   const fetchSuppliers = async () => {
-    if (!query) return;
+    if (!material.trim() || !locality.trim()) return;
+
     setLoading(true);
     setHasSearched(true);
+    setErrorMsg("");
+    setSuppliers([]);
     setSelectedForCompare([]);
     setActiveSupplierProfile(null);
     setResultsView("grid");
 
     try {
-      const input = { query, mode: "all", maxResults: 12 };
-
-      const run = await client
-        .actor("zen-studio/thomasnet-suppliers-scraper")
-        .call(input, { waitSecs: 15 });
-
-      let items = [];
-
-      if (run.status === "SUCCEEDED") {
-        const dataset = client.dataset(run.defaultDatasetId);
-        const data = await dataset.listItems({ limit: 12 });
-        items = data.items;
-      }
-
-      // Expanded Hackathon Fallback Data
-      if (items.length === 0) {
-        console.log("Using Expanded Hackathon Fallback Data...");
-        items = [
-          {
-            name: "EcoValve Manufacturing Co.",
-            website: "https://www.ecovalve-mfg.com",
-            description:
-              "Leading manufacturer of sustainable, heavy-duty industrial valves for the oil, gas, and water treatment sectors. We prioritize recycled steel and zero-emission forging processes.",
-            address: { city: "Houston", stateName: "Texas", country: "USA" },
-            headings: ["Fluid Control", "Heavy Industry", "Sustainable Tech"],
-            brands: ["EcoValve", "SteelForge", "AquaFlow"],
-            annualSales: "$10M - $25M",
-            numberEmployees: "150",
-            yearFounded: "1998",
-            categories: ["Fluid Control", "Heavy Industry", "Sustainable Tech"],
-            products: [
-              "Industrial Valves",
-              "Pipe Fittings",
-              "CNC Machining",
-              "Pressure Regulators",
-            ],
-            certifications: ["ISO 9001", "LEED Gold", "API Spec 6D"],
-          },
-          {
-            name: "Nexus Precision Parts",
-            website: "https://www.nexusprecision.com",
-            description:
-              "High-tolerance precision parts and custom tooling. ISO 9001 certified and specializing in aerospace and medical device components. 5-axis CNC capabilities.",
-            address: {
-              city: "San Jose",
-              stateName: "California",
-              country: "USA",
-            },
-            headings: ["Aerospace", "Medical Devices", "Precision Machining"],
-            brands: ["Nexus Aero", "MedCore"],
-            annualSales: "$50M+",
-            numberEmployees: "320",
-            yearFounded: "2005",
-            categories: ["Aerospace", "Medical Devices", "Precision Machining"],
-            products: [
-              "Titanium Implants",
-              "Turbine Blades",
-              "Custom Tooling",
-              "Micro-machined gears",
-            ],
-            certifications: ["ISO 9001", "AS9100 Rev D", "ISO 13485"],
-          },
-          {
-            name: "Midwest Packaging Solutions",
-            website: "https://www.midwestpacksolutions.com",
-            description:
-              "Bulk corrugated packaging and sustainable shipping materials. 100% powered by renewable energy. Custom structural design and rapid prototyping available.",
-            address: { city: "Chicago", stateName: "Illinois", country: "USA" },
-            headings: ["Packaging", "Logistics Supply", "Green Materials"],
-            brands: ["Midwest Pack", "EcoShip"],
-            annualSales: "$5M - $10M",
-            numberEmployees: "45",
-            yearFounded: "2012",
-            categories: ["Packaging", "Logistics Supply", "Green Materials"],
-            products: [
-              "Corrugated Boxes",
-              "Biodegradable Peanuts",
-              "Custom Pallets",
-              "Shrink Wrap",
-            ],
-            certifications: ["FSC Certified", "ISO 14001"],
-          },
-          {
-            name: "Global Tech Circuits",
-            website: "https://www.globaltechcircuits.com",
-            description:
-              "Tier 1 supplier of Printed Circuit Boards (PCBs) and electronic assemblies for automotive and consumer electronics. High-volume automated SMT lines.",
-            address: { city: "Austin", stateName: "Texas", country: "USA" },
-            headings: ["Electronics", "Semiconductors", "Automotive"],
-            brands: ["GTC", "AutoCirc"],
-            annualSales: "$100M+",
-            numberEmployees: "850",
-            yearFounded: "1992",
-            categories: ["Electronics", "Semiconductors", "Automotive"],
-            products: [
-              "Multilayer PCBs",
-              "Flexible Circuits",
-              "SMT Assembly",
-              "Testing Services",
-            ],
-            certifications: ["ISO 9001", "IATF 16949", "RoHS Compliant"],
-          },
-          {
-            name: "Apex Polymer Solutions",
-            website: "https://www.apexpolymers.net",
-            description:
-              "Custom plastic injection molding and synthetic polymer extrusion. Specializing in high-heat and chemically resistant plastics for industrial applications.",
-            address: { city: "Akron", stateName: "Ohio", country: "USA" },
-            headings: ["Plastics", "Chemicals", "Injection Molding"],
-            brands: ["ApexPoly", "ThermoBlend"],
-            annualSales: "$25M - $50M",
-            numberEmployees: "210",
-            yearFounded: "1985",
-            categories: ["Plastics", "Chemicals", "Injection Molding"],
-            products: [
-              "Injection Molded Parts",
-              "Polycarbonate Sheets",
-              "Nylon Tubing",
-              "Custom Resins",
-            ],
-            certifications: ["ISO 9001", "UL Registered Fabricator"],
-          },
-          {
-            name: "Ironforge Heavy Industries",
-            website: "https://www.ironforgeheavy.com",
-            description:
-              "Large scale metal casting and forging. Supplying the rail, defense, and construction sectors with structural steel components up to 50 tons.",
-            address: {
-              city: "Pittsburgh",
-              stateName: "Pennsylvania",
-              country: "USA",
-            },
-            headings: ["Metallurgy", "Defense", "Construction"],
-            brands: ["Ironforge", "RailPro"],
-            annualSales: "$75M+",
-            numberEmployees: "400",
-            yearFounded: "1920",
-            categories: ["Metallurgy", "Defense", "Construction"],
-            products: [
-              "Steel Castings",
-              "Forged Shafts",
-              "Structural Beams",
-              "Rail Components",
-            ],
-            certifications: ["ISO 9001", "AAR M-1003", "NIST 800-171"],
-          },
-        ];
-      }
-
-      const processedSuppliers = items.map((s, index) =>
-        normalizeExporterItem(s, index),
-      );
-
-      const rankedSuppliers = await rankSuppliers(processedSuppliers, query, {
-        searchMode: "expanded",
-        semanticWeight: 0.6,
+      const res = await fetch(`${FLASK_BASE}/api/find-suppliers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          material: material.trim(),
+          locality: locality.trim(),
+        }),
       });
 
-      setSuppliers(rankedSuppliers);
+      const json = await res.json();
+
+      if (!res.ok) {
+        setErrorMsg(json.error ?? "Something went wrong.");
+        return;
+      }
+
+      const normalized = (json.suppliers ?? []).map((s, i) =>
+        normalizeGeminiSupplier(s, i),
+      );
+
+      setSuppliers(normalized);
     } catch (err) {
-      console.error("Scraping failed:", err);
+      console.error("find-suppliers fetch failed:", err);
+      setErrorMsg(
+        "Could not reach the backend. Is Flask running on port 5001?",
+      );
     } finally {
       setLoading(false);
     }
   };
 
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") fetchSuppliers();
+  };
+
+  // ── Filters ──────────────────────────────────────────────────────────────────
   const filteredSuppliers = useMemo(() => {
     return suppliers.filter((s) => {
       if (esgCertified && !s.isEsg) return false;
@@ -295,13 +199,8 @@ export default function SupplyChainIntelligence() {
       if (!matchesRevenueBand(s, revenueFilter)) return false;
       if (minYearsActive) {
         const minY = parseInt(minYearsActive, 10);
-        if (
-          s.yearsActive == null ||
-          Number.isNaN(minY) ||
-          s.yearsActive < minY
-        ) {
+        if (s.yearsActive == null || isNaN(minY) || s.yearsActive < minY)
           return false;
-        }
       }
       return true;
     });
@@ -332,9 +231,11 @@ export default function SupplyChainIntelligence() {
     }
   };
 
+  // ── Supplier profile view ────────────────────────────────────────────────────
   if (activeSupplierProfile) {
     const s = activeSupplierProfile;
     const profileStrengths = deriveStrengths(s, s.fitBreakdown);
+
     return (
       <div className="min-h-screen bg-slate-50 text-slate-600 font-sans selection:bg-indigo-500/30">
         <nav className="border-b border-slate-200/60 bg-slate-50/80 backdrop-blur-md p-4 sticky top-0 z-40">
@@ -345,17 +246,16 @@ export default function SupplyChainIntelligence() {
             >
               <FaArrowLeft /> Back to Search
             </button>
-            <div className="flex items-center gap-3">
-              <h1 className="text-xl font-bold text-[#0a2540] tracking-tight">
-                Import<span className="text-indigo-600 font-medium">.me</span>
-              </h1>
-            </div>
+            <h1 className="text-xl font-bold text-[#0a2540] tracking-tight">
+              Import<span className="text-indigo-600 font-medium">.me</span>
+            </h1>
           </div>
         </nav>
 
         <div className="max-w-5xl mx-auto p-6 space-y-8 mt-4 pb-24">
+          {/* Header card */}
           <div className="bg-white border border-slate-200 rounded-2xl p-8 stripe-card-shadow relative overflow-hidden flex flex-col md:flex-row gap-8 items-start">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none"></div>
+            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
 
             <div className="h-32 w-32 shrink-0 bg-white rounded-2xl flex items-center justify-center border border-slate-600 overflow-hidden shadow-inner p-2 relative z-10">
               {s.logoUrl ? (
@@ -382,9 +282,7 @@ export default function SupplyChainIntelligence() {
                   <div className="w-36 h-2 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
                     <div
                       className="h-full bg-gradient-to-r from-indigo-500 to-violet-500 rounded-full"
-                      style={{
-                        width: `${Math.min(100, s.fitScore ?? 0)}%`,
-                      }}
+                      style={{ width: `${Math.min(100, s.fitScore ?? 0)}%` }}
                     />
                   </div>
                 </div>
@@ -394,17 +292,19 @@ export default function SupplyChainIntelligence() {
                 <span className="flex items-center gap-1.5">
                   <FaMapMarkerAlt className="text-slate-500" /> {s.address}
                 </span>
-                <span className="flex items-center gap-1.5">
-                  <FaGlobe className="text-slate-500" />{" "}
-                  <a
-                    href={s.website}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-indigo-600 hover:underline"
-                  >
-                    {s.website}
-                  </a>
-                </span>
+                {s.website && s.website !== "#" && (
+                  <span className="flex items-center gap-1.5">
+                    <FaGlobe className="text-slate-500" />
+                    <a
+                      href={s.website}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-indigo-600 hover:underline"
+                    >
+                      {s.website}
+                    </a>
+                  </span>
+                )}
               </div>
 
               <div className="flex flex-wrap gap-2 mb-3">
@@ -417,6 +317,7 @@ export default function SupplyChainIntelligence() {
                   </span>
                 ))}
               </div>
+
               {profileStrengths.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {profileStrengths.map((line, i) => (
@@ -434,9 +335,13 @@ export default function SupplyChainIntelligence() {
             <div className="flex flex-col gap-3 w-full md:w-auto relative z-10">
               <button
                 onClick={(e) => toggleCompare(s, e)}
-                className={`px-6 py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border ${selectedForCompare.some((comp) => comp.id === s.id) ? "bg-indigo-600/20 border-indigo-500 text-indigo-600" : "bg-slate-100 border-slate-200 text-[#0a2540] hover:bg-slate-700"}`}
+                className={`px-6 py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border ${
+                  selectedForCompare.some((c) => c.id === s.id)
+                    ? "bg-indigo-600/20 border-indigo-500 text-indigo-600"
+                    : "bg-slate-100 border-slate-200 text-[#0a2540] hover:bg-slate-700"
+                }`}
               >
-                {selectedForCompare.some((comp) => comp.id === s.id) ? (
+                {selectedForCompare.some((c) => c.id === s.id) ? (
                   <>
                     <FaCheckSquare /> In Compare
                   </>
@@ -459,73 +364,30 @@ export default function SupplyChainIntelligence() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {/* Left column */}
             <div className="md:col-span-2 space-y-8">
               <div className="bg-white border border-slate-200 rounded-2xl p-6 stripe-card-shadow">
                 <h2 className="text-lg font-bold text-[#0a2540] mb-4 border-b border-slate-200 pb-2">
-                  Company Overview
+                  Company overview
                 </h2>
                 <p className="text-slate-500 leading-relaxed">
                   {s.description}
                 </p>
               </div>
 
-              {(s.tags?.length > 0 || s.brands?.length > 0) && (
-                <div className="bg-white border border-slate-200 rounded-2xl p-6 stripe-card-shadow">
-                  <h2 className="text-lg font-bold text-[#0a2540] mb-4 border-b border-slate-200 pb-2">
-                    Tags & brands
-                  </h2>
-                  {s.tags?.length > 0 && (
-                    <div className="mb-4">
-                      <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-2">
-                        Extracted tags
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {s.tags.map((t, i) => (
-                          <span
-                            key={i}
-                            className="px-2.5 py-1 bg-indigo-500/10 border border-indigo-500/25 text-indigo-200 text-xs rounded-lg"
-                          >
-                            {t}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {s.brands?.length > 0 && (
-                    <div>
-                      <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-2">
-                        Brands
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {s.brands.slice(0, 5).map((b, i) => (
-                          <span
-                            key={i}
-                            className="px-2.5 py-1 bg-slate-100 border border-slate-200 text-slate-600 text-xs rounded-lg"
-                          >
-                            {b}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
               <div className="bg-white border border-slate-200 rounded-2xl p-6 stripe-card-shadow">
                 <h2 className="text-lg font-bold text-[#0a2540] mb-4 border-b border-slate-200 pb-2 flex items-center gap-2">
-                  <BsBoxSeam className="text-indigo-600" /> Product Capabilities
+                  <BsBoxSeam className="text-indigo-600" /> Product capabilities
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {s.products.length > 0 ? (
-                    s.products.map((product, i) => (
+                    s.products.map((p, i) => (
                       <div
                         key={i}
                         className="flex items-center gap-3 p-3 bg-slate-50/50 border border-slate-200 rounded-lg"
                       >
-                        <div className="h-2 w-2 rounded-full bg-indigo-500"></div>
-                        <span className="text-sm text-slate-600">
-                          {product}
-                        </span>
+                        <div className="h-2 w-2 rounded-full bg-indigo-500" />
+                        <span className="text-sm text-slate-600">{p}</span>
                       </div>
                     ))
                   ) : (
@@ -537,32 +399,48 @@ export default function SupplyChainIntelligence() {
               </div>
             </div>
 
+            {/* Right column */}
             <div className="space-y-8">
-              <div className="bg-white border border-slate-200 rounded-2xl p-6 stripe-card-shadow space-y-6">
-                <div>
-                  <p className="text-slate-500 text-[10px] uppercase tracking-widest font-bold mb-1">
-                    Annual Revenue
-                  </p>
-                  <p className="text-[#0a2540] font-medium text-lg">
-                    {s.annualSales}
-                  </p>
+              <div className="bg-white border border-slate-200 rounded-2xl p-6 stripe-card-shadow space-y-4">
+                <h2 className="text-sm font-bold text-[#0a2540] border-b border-slate-200 pb-2">
+                  Contact details
+                </h2>
+                <div className="flex items-center gap-3 text-sm">
+                  <div className="bg-slate-100 p-2 rounded flex items-center justify-center">
+                    <FaPhone className="text-slate-500" />
+                  </div>
+                  <span className="text-slate-600">{s.phone}</span>
                 </div>
-                <div>
-                  <p className="text-slate-500 text-[10px] uppercase tracking-widest font-bold mb-1">
-                    Company Size
-                  </p>
-                  <p className="text-[#0a2540] font-medium text-lg">
-                    {s.employeeString} Employees
-                  </p>
+                <div className="flex items-center gap-3 text-sm">
+                  <div className="bg-slate-100 p-2 rounded flex items-center justify-center">
+                    <FaEnvelope className="text-slate-500" />
+                  </div>
+                  {s.email !== "Not listed" ? (
+                    <a
+                      href={`mailto:${s.email}`}
+                      className="text-indigo-600 hover:underline"
+                    >
+                      {s.email}
+                    </a>
+                  ) : (
+                    <span className="text-slate-500">{s.email}</span>
+                  )}
                 </div>
-                <div>
-                  <p className="text-slate-500 text-[10px] uppercase tracking-widest font-bold mb-1">
-                    Year Founded
-                  </p>
-                  <p className="text-[#0a2540] font-medium text-lg">
-                    {s.yearFounded}
-                  </p>
-                </div>
+                {s.website && s.website !== "#" && (
+                  <div className="flex items-center gap-3 text-sm">
+                    <div className="bg-slate-100 p-2 rounded flex items-center justify-center">
+                      <FaGlobe className="text-slate-500" />
+                    </div>
+                    <a
+                      href={s.website}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-indigo-600 hover:underline truncate"
+                    >
+                      {s.website.replace(/^https?:\/\//, "")}
+                    </a>
+                  </div>
+                )}
               </div>
 
               {s.fitBreakdown && (
@@ -570,21 +448,12 @@ export default function SupplyChainIntelligence() {
                   <h2 className="text-sm font-bold text-[#0a2540] border-b border-slate-200 pb-2">
                     Fit score breakdown
                   </h2>
-                  <p className="text-[10px] text-slate-500 leading-snug">
-                    Experience (40), size (30), brands (30).
-                  </p>
                   {[
-                    ["aiSemantic", "AI semantic match"],
-                    ["experience", "Experience"],
-                    ["size", "Company size"],
-                    ["brands", "Brands"],
-                  ].map(([key, label]) => {
-                    const max =
-                      key === "aiSemantic"
-                        ? 100
-                        : key === "experience"
-                          ? 40
-                          : 30;
+                    ["aiSemantic", "AI semantic match", 100],
+                    ["experience", "Experience", 40],
+                    ["size", "Company size", 30],
+                    ["brands", "Brands", 30],
+                  ].map(([key, label, max]) => {
                     const val = s.fitBreakdown[key] ?? 0;
                     return (
                       <div key={key} className="space-y-1">
@@ -622,46 +491,27 @@ export default function SupplyChainIntelligence() {
                 </div>
               )}
 
-              <div className="bg-white border border-slate-200 rounded-2xl p-6 stripe-card-shadow space-y-4">
-                <h2 className="text-sm font-bold text-[#0a2540] border-b border-slate-200 pb-2">
-                  Contact Details
-                </h2>
-                <div className="flex items-center gap-3 text-sm">
-                  <div className="bg-slate-100 p-2 rounded flex items-center justify-center">
-                    <FaPhone className="text-slate-500" />
-                  </div>
-                  <span className="text-slate-600">{s.phone}</span>
-                </div>
-                <div className="flex items-center gap-3 text-sm">
-                  <div className="bg-slate-100 p-2 rounded flex items-center justify-center">
-                    <FaEnvelope className="text-slate-500" />
-                  </div>
-                  <span className="text-indigo-600">{s.email}</span>
-                </div>
-              </div>
-
               <div className="bg-white border border-slate-200 rounded-2xl p-6 stripe-card-shadow">
                 <h2 className="text-sm font-bold text-[#0a2540] border-b border-slate-200 pb-2 mb-4">
-                  Compliance & Certifications
+                  Compliance & certifications
                 </h2>
-                <div className="flex flex-col gap-2">
-                  {s.certifications.map((cert, i) => (
+                {s.certifications.length > 0 ? (
+                  s.certifications.map((cert, i) => (
                     <div
                       key={i}
-                      className="flex items-center gap-2 px-3 py-2 bg-slate-100/50 rounded border border-slate-200"
+                      className="flex items-center gap-2 px-3 py-2 bg-slate-100/50 rounded border border-slate-200 mb-2"
                     >
                       <FaAward className="text-yellow-500 h-4 w-4 shrink-0" />
                       <span className="text-sm text-slate-600 font-medium">
                         {cert}
                       </span>
                     </div>
-                  ))}
-                  {s.certifications.length === 0 && (
-                    <span className="text-slate-500 text-sm">
-                      No certifications found.
-                    </span>
-                  )}
-                </div>
+                  ))
+                ) : (
+                  <span className="text-slate-500 text-sm">
+                    No certifications found.
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -671,10 +521,6 @@ export default function SupplyChainIntelligence() {
               <h2 className="text-lg font-bold text-[#0a2540] mb-4 border-b border-slate-200 pb-2 flex items-center gap-2">
                 <BsStars className="text-indigo-600" /> Similar suppliers
               </h2>
-              <p className="text-xs text-slate-500 mb-4">
-                Ranked by overlapping categories, shared tags, and common
-                brands.
-              </p>
               <div className="grid gap-3 sm:grid-cols-2">
                 {similarSuppliers.map(({ company: c, similarityScore }) => (
                   <button
@@ -685,7 +531,7 @@ export default function SupplyChainIntelligence() {
                   >
                     <div className="font-semibold text-[#0a2540]">{c.name}</div>
                     <div className="text-xs text-slate-500 mt-1">
-                      Similarity rank score: {similarityScore}
+                      Similarity score: {similarityScore}
                     </div>
                   </button>
                 ))}
@@ -706,50 +552,80 @@ export default function SupplyChainIntelligence() {
     );
   }
 
+  // ── Main search view ─────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-slate-50 text-slate-600 font-sans selection:bg-indigo-500/30 pb-24">
       <Navigation />
 
       <div className="max-w-7xl mx-auto p-6 space-y-8 mt-4">
+        {/* Search panel */}
         <div className="stripe-gradient border border-slate-200/50 rounded-2xl p-8 stripe-card-shadow relative overflow-hidden">
-          <div className="absolute top-0 right-0 -mt-20 -mr-20 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
+          <div className="absolute top-0 right-0 -mt-20 -mr-20 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
 
           <div className="relative z-10">
             <h2 className="text-3xl font-bold text-[#0a2540] mb-2 flex items-center gap-2">
-              <BsStars className="text-indigo-600" /> Industrial Sourcing Engine
+              <BsStars className="text-indigo-600" /> Raw Material Sourcing
+              Engine
             </h2>
             <p className="text-slate-500 mb-6 max-w-2xl text-sm leading-relaxed">
-              Find B2B manufacturers and raw material suppliers. Describe your
-              exact requirements—materials, compliance, volume, and location.
+              Enter a raw material and a locality. Gemini AI will find real
+              suppliers near that location with contact details and map pins.
             </p>
 
-            <div className="flex flex-col md:flex-row gap-4">
+            {/* Two-field search: material + locality */}
+            <div className="flex flex-col md:flex-row gap-3 mb-3">
               <div className="flex-1 relative group">
-                <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 blur opacity-25 group-hover:opacity-40 transition-opacity"></div>
+                <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 blur opacity-25 group-hover:opacity-40 transition-opacity" />
                 <div className="relative flex items-center bg-white border border-slate-200 rounded-xl overflow-hidden focus-within:border-indigo-500 transition-colors shadow-inner">
                   <FaSearch className="absolute left-4 text-indigo-600 h-4 w-4" />
                   <input
                     type="text"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
+                    value={material}
+                    onChange={(e) => setMaterial(e.target.value)}
+                    onKeyDown={handleKeyDown}
                     autoComplete="off"
-                    placeholder="e.g., 'ISO certified valve manufacturers in Texas'..."
-                    className="w-full pl-12 pr-4 py-4 bg-transparent text-[#0a2540] outline-none placeholder:text-slate-500 font-medium"
-                    onKeyDown={(e) => e.key === "Enter" && fetchSuppliers()}
+                    placeholder="Raw material (e.g. copper wire, raw cotton…)"
+                    className="w-full pl-12 pr-4 py-4 bg-transparent text-[#0a2540] outline-none placeholder:text-slate-400 font-medium"
                   />
                 </div>
               </div>
+
+              <div className="flex-1 relative group">
+                <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-purple-500 to-violet-500 blur opacity-20 group-hover:opacity-35 transition-opacity" />
+                <div className="relative flex items-center bg-white border border-slate-200 rounded-xl overflow-hidden focus-within:border-indigo-500 transition-colors shadow-inner">
+                  <FaMapMarkerAlt className="absolute left-4 text-indigo-600 h-4 w-4" />
+                  <input
+                    type="text"
+                    value={locality}
+                    onChange={(e) => setLocality(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    autoComplete="off"
+                    placeholder="Locality (e.g. Mumbai, Surat, Chennai…)"
+                    className="w-full pl-12 pr-4 py-4 bg-transparent text-[#0a2540] outline-none placeholder:text-slate-400 font-medium"
+                  />
+                </div>
+              </div>
+
               <button
                 onClick={fetchSuppliers}
-                disabled={!mounted || loading || query.trim() === ""}
-                className="px-8 py-4 bg-indigo-600 text-[#0a2540] hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 font-bold rounded-full transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 whitespace-nowrap min-w-[200px]"
+                disabled={
+                  !mounted || loading || !material.trim() || !locality.trim()
+                }
+                className="px-8 py-4 bg-indigo-600 text-white hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 font-bold rounded-full transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 whitespace-nowrap min-w-[180px]"
               >
-                {loading ? "Searching..." : "Source Partners"}
+                {loading ? "Searching…" : "Find Suppliers"}
               </button>
             </div>
+
+            {errorMsg && (
+              <div className="mt-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
+                {errorMsg}
+              </div>
+            )}
           </div>
         </div>
 
+        {/* Filter bar */}
         {hasSearched && !loading && suppliers.length > 0 && (
           <div className="space-y-3">
             <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 p-4 bg-slate-100/30 rounded-xl border border-slate-200/50 backdrop-blur-sm">
@@ -757,24 +633,21 @@ export default function SupplyChainIntelligence() {
                 <FaFilter className="h-3.5 w-3.5 text-indigo-600" /> Refine
                 results
               </div>
-
-              <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto lg:justify-end">
-                <div className="flex rounded-lg border border-slate-200 overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => setResultsView("grid")}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold transition-colors ${resultsView === "grid" ? "bg-indigo-600 text-[#0a2540]" : "bg-white text-slate-500 hover:text-[#0a2540]"}`}
-                  >
-                    <FaTh className="h-3.5 w-3.5" /> Grid
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setResultsView("map")}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold transition-colors border-l border-slate-200 ${resultsView === "map" ? "bg-indigo-600 text-[#0a2540]" : "bg-white text-slate-500 hover:text-[#0a2540]"}`}
-                  >
-                    <FaMapMarkedAlt className="h-3.5 w-3.5" /> Map
-                  </button>
-                </div>
+              <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setResultsView("grid")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold transition-colors ${resultsView === "grid" ? "bg-indigo-600 text-white" : "bg-white text-slate-500 hover:text-[#0a2540]"}`}
+                >
+                  <FaTh className="h-3.5 w-3.5" /> Grid
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setResultsView("map")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold transition-colors border-l border-slate-200 ${resultsView === "map" ? "bg-indigo-600 text-white" : "bg-white text-slate-500 hover:text-[#0a2540]"}`}
+                >
+                  <FaMapMarkedAlt className="h-3.5 w-3.5" /> Map
+                </button>
               </div>
             </div>
 
@@ -784,41 +657,16 @@ export default function SupplyChainIntelligence() {
                   <FaMapMarkerAlt className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 h-3 w-3" />
                   <input
                     type="text"
-                    placeholder="Location"
+                    placeholder="Filter by location"
                     value={locationFilter}
                     onChange={(e) => setLocationFilter(e.target.value)}
-                    className="pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 text-[#0a2540] w-36"
+                    className="pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 text-[#0a2540] w-40"
                   />
                 </div>
-
-                <div className="relative">
-                  <FaBuilding className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 h-3 w-3" />
-                  <input
-                    type="number"
-                    min={0}
-                    placeholder="Min employees"
-                    value={minEmployees}
-                    onChange={(e) => setMinEmployees(e.target.value)}
-                    className="pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 text-[#0a2540] w-36"
-                  />
-                </div>
-
-                <div className="relative">
-                  <FaBuilding className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 h-3 w-3" />
-                  <input
-                    type="number"
-                    min={0}
-                    placeholder="Max employees"
-                    value={maxEmployees}
-                    onChange={(e) => setMaxEmployees(e.target.value)}
-                    className="pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 text-[#0a2540] w-36"
-                  />
-                </div>
-
                 <select
                   value={revenueFilter}
                   onChange={(e) => setRevenueFilter(e.target.value)}
-                  className="py-1.5 px-3 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 text-[#0a2540] max-w-[200px]"
+                  className="py-1.5 px-3 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 text-[#0a2540]"
                 >
                   <option value="any">Any revenue</option>
                   <option value="under10">Under ~$10M</option>
@@ -826,52 +674,16 @@ export default function SupplyChainIntelligence() {
                   <option value="50to100">~$50M – $100M</option>
                   <option value="over100">$100M+</option>
                 </select>
-
-                <input
-                  type="number"
-                  min={0}
-                  placeholder="Min years active"
-                  value={minYearsActive}
-                  onChange={(e) => setMinYearsActive(e.target.value)}
-                  className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 text-[#0a2540] w-40"
-                />
-
-                {/* <div className="h-6 w-px bg-slate-700 mx-1 hidden sm:block"></div> */}
-
-                {/* <label
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border cursor-pointer transition-all text-sm font-medium ${esgCertified ? "bg-emerald-500/10 border-emerald-500/50 text-emerald-400" : "bg-white border-slate-200 text-slate-500 hover:border-slate-500"}`}
-                >
-                  <input
-                    type="checkbox"
-                    className="hidden"
-                    checked={esgCertified}
-                    onChange={(e) => setEsgCertified(e.target.checked)}
-                  />
-                  <FaLeaf className="h-3 w-3" /> ESG
-                </label>
-
-                <label
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border cursor-pointer transition-all text-sm font-medium ${isoCertified ? "bg-blue-500/10 border-blue-500/50 text-blue-400" : "bg-white border-slate-200 text-slate-500 hover:border-slate-500"}`}
-                >
-                  <input
-                    type="checkbox"
-                    className="hidden"
-                    checked={isoCertified}
-                    onChange={(e) => setIsoCertified(e.target.checked)}
-                  />
-                  <FaAward className="h-3 w-3" /> ISO 9001
-                </label> */}
               </div>
               <p className="text-[11px] text-slate-500 leading-snug">
-                Revenue bands use parsed ranges from listings (undisclosed
-                revenue is hidden when a revenue filter is applied). Map pins
-                use API coordinates when present, otherwise approximate city
-                locations.
+                Supplier data is AI-generated by Gemini. Map pins use lat/lng
+                returned by the model — verify addresses before contacting.
               </p>
             </div>
           </div>
         )}
 
+        {/* Loading skeleton */}
         {loading && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {[1, 2, 3, 4, 5, 6].map((n) => (
@@ -880,34 +692,34 @@ export default function SupplyChainIntelligence() {
                 className="bg-slate-100/20 border border-slate-200 rounded-2xl p-6 h-80 animate-pulse flex flex-col"
               >
                 <div className="flex gap-4 mb-4">
-                  <div className="h-12 w-12 bg-slate-700/50 rounded-xl"></div>
+                  <div className="h-12 w-12 bg-slate-700/50 rounded-xl" />
                   <div className="space-y-2 flex-1">
-                    <div className="h-4 w-3/4 bg-slate-700/50 rounded"></div>
-                    <div className="h-3 w-1/2 bg-slate-700/50 rounded"></div>
+                    <div className="h-4 w-3/4 bg-slate-700/50 rounded" />
+                    <div className="h-3 w-1/2 bg-slate-700/50 rounded" />
                   </div>
                 </div>
-                <div className="space-y-2 mb-6">
-                  <div className="h-3 w-full bg-slate-700/50 rounded"></div>
-                  <div className="h-3 w-4/5 bg-slate-700/50 rounded"></div>
+                <div className="space-y-2">
+                  <div className="h-3 w-full bg-slate-700/50 rounded" />
+                  <div className="h-3 w-4/5 bg-slate-700/50 rounded" />
                 </div>
               </div>
             ))}
           </div>
         )}
 
+        {/* Map view */}
         {!loading && filteredSuppliers.length > 0 && resultsView === "map" && (
           <SupplierMapView
             suppliers={filteredSuppliers}
-            onSelectCompany={(co) => handleOpenProfile(co)}
+            onSelectCompany={handleOpenProfile}
           />
         )}
 
+        {/* Grid view */}
         {!loading && filteredSuppliers.length > 0 && resultsView === "grid" && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredSuppliers.map((s) => {
-              const isSelected = selectedForCompare.some(
-                (comp) => comp.id === s.id,
-              );
+              const isSelected = selectedForCompare.some((c) => c.id === s.id);
               return (
                 <div
                   key={s.id}
@@ -929,8 +741,23 @@ export default function SupplyChainIntelligence() {
             })}
           </div>
         )}
+
+        {/* Empty state */}
+        {hasSearched &&
+          !loading &&
+          filteredSuppliers.length === 0 &&
+          !errorMsg && (
+            <div className="flex flex-col items-center justify-center py-20 text-slate-500">
+              <FaBuilding className="h-12 w-12 mb-4 opacity-30" />
+              <p className="text-lg font-medium">No suppliers found</p>
+              <p className="text-sm mt-1">
+                Try a different material or locality.
+              </p>
+            </div>
+          )}
       </div>
 
+      {/* Compare tray */}
       {selectedForCompare.length > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-50 border border-slate-200 stripe-card-shadow shadow-black/50 rounded-2xl p-4 flex items-center gap-6 z-40">
           <div className="flex flex-col">
@@ -957,7 +784,7 @@ export default function SupplyChainIntelligence() {
                   onClick={(e) => toggleCompare(s, e)}
                   className="absolute inset-0 bg-red-500/80 items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity flex cursor-pointer"
                 >
-                  <FaTimes className="text-[#0a2540] h-3 w-3" />
+                  <FaTimes className="text-white h-3 w-3" />
                 </button>
               </div>
             ))}
@@ -965,7 +792,7 @@ export default function SupplyChainIntelligence() {
               <div
                 key={`empty-${i}`}
                 className="h-10 w-10 border border-dashed border-slate-600 rounded-lg bg-slate-100/50"
-              ></div>
+              />
             ))}
           </div>
 
@@ -975,33 +802,34 @@ export default function SupplyChainIntelligence() {
               setCompareModalTab("scores");
               setShowMatrixModal(true);
             }}
-            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-100 disabled:text-slate-500 text-[#0a2540] font-bold rounded-xl transition-all flex items-center gap-2"
+            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-100 disabled:text-slate-500 text-white font-bold rounded-xl transition-all flex items-center gap-2"
           >
-            <FaScaleBalanced className="h-4 w-4" /> Compare companies
+            <FaScaleBalanced className="h-4 w-4" /> Compare
           </button>
         </div>
       )}
 
+      {/* Compare modal */}
       {showMatrixModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-sm">
           <div className="bg-slate-50 border border-slate-200 rounded-2xl stripe-card-shadow w-full max-w-6xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 bg-white">
               <h2 className="text-xl font-bold text-[#0a2540] flex items-center gap-2">
-                <BsStars className="text-indigo-600" /> Compare companies
+                <BsStars className="text-indigo-600" /> Compare suppliers
               </h2>
               <div className="flex items-center gap-2 flex-wrap">
                 <div className="flex rounded-lg border border-slate-200 overflow-hidden">
                   <button
                     type="button"
                     onClick={() => setCompareModalTab("scores")}
-                    className={`px-3 py-1.5 text-xs font-bold transition-colors ${compareModalTab === "scores" ? "bg-indigo-600 text-[#0a2540]" : "bg-slate-50 text-slate-500 hover:text-[#0a2540]"}`}
+                    className={`px-3 py-1.5 text-xs font-bold transition-colors ${compareModalTab === "scores" ? "bg-indigo-600 text-white" : "bg-slate-50 text-slate-500"}`}
                   >
                     Fit scores
                   </button>
                   <button
                     type="button"
                     onClick={() => setCompareModalTab("matrix")}
-                    className={`px-3 py-1.5 text-xs font-bold transition-colors border-l border-slate-200 ${compareModalTab === "matrix" ? "bg-indigo-600 text-[#0a2540]" : "bg-slate-50 text-slate-500 hover:text-[#0a2540]"}`}
+                    className={`px-3 py-1.5 text-xs font-bold transition-colors border-l border-slate-200 ${compareModalTab === "matrix" ? "bg-indigo-600 text-white" : "bg-slate-50 text-slate-500"}`}
                   >
                     Company details
                   </button>
@@ -1009,7 +837,6 @@ export default function SupplyChainIntelligence() {
                 <button
                   onClick={() => setShowMatrixModal(false)}
                   className="text-slate-500 hover:text-[#0a2540] transition-colors p-1"
-                  aria-label="Close"
                 >
                   <FaTimes className="h-5 w-5" />
                 </button>
@@ -1018,10 +845,6 @@ export default function SupplyChainIntelligence() {
 
             {compareModalTab === "scores" && (
               <div className="overflow-auto p-4 sm:p-6">
-                <p className="text-xs text-slate-500 mb-4">
-                  Side-by-side fit scores (same model as result cards). Higher
-                  is better; subscores are out of their max weights.
-                </p>
                 <div className="overflow-x-auto rounded-xl border border-slate-200">
                   <table className="w-full text-left text-sm min-w-[640px]">
                     <thead>
@@ -1032,22 +855,14 @@ export default function SupplyChainIntelligence() {
                         {selectedForCompare.map((s) => (
                           <th
                             key={s.id}
-                            className="p-3 text-[#0a2540] font-semibold align-bottom"
+                            className="p-3 text-[#0a2540] font-semibold"
                           >
-                            <div className="line-clamp-2">{s.name}</div>
+                            {s.name}
                           </th>
-                        ))}
-                        {Array.from({
-                          length: 3 - selectedForCompare.length,
-                        }).map((_, i) => (
-                          <th
-                            key={`e-${i}`}
-                            className="p-3 text-slate-600"
-                          ></th>
                         ))}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800/80">
+                    <tbody className="divide-y divide-slate-200">
                       <tr>
                         <td className="p-3 text-slate-500 font-medium">
                           Total fit score
@@ -1069,11 +884,6 @@ export default function SupplyChainIntelligence() {
                             </div>
                           </td>
                         ))}
-                        {Array.from({
-                          length: 3 - selectedForCompare.length,
-                        }).map((_, i) => (
-                          <td key={`fe-${i}`} className="p-3"></td>
-                        ))}
                       </tr>
                       {[
                         ["aiSemantic", "AI semantic match", 100],
@@ -1084,19 +894,19 @@ export default function SupplyChainIntelligence() {
                         <tr key={key}>
                           <td className="p-3 text-slate-500">
                             {label}{" "}
-                            <span className="text-slate-600">(max {max})</span>
+                            <span className="text-slate-400">(max {max})</span>
                           </td>
                           {selectedForCompare.map((s) => {
                             const v = s.fitBreakdown?.[key] ?? 0;
                             return (
-                              <td key={s.id} className="p-3 text-slate-200">
+                              <td key={s.id} className="p-3">
                                 <div className="flex items-center gap-2">
-                                  <span className="tabular-nums font-medium">
+                                  <span className="tabular-nums font-medium text-slate-700">
                                     {v}
                                   </span>
                                   <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden max-w-[100px]">
                                     <div
-                                      className={`h-full rounded-full ${key === "aiSemantic" ? "bg-gradient-to-r from-indigo-500 to-purple-500" : "bg-slate-500"}`}
+                                      className={`h-full rounded-full ${key === "aiSemantic" ? "bg-gradient-to-r from-indigo-500 to-purple-500" : "bg-slate-400"}`}
                                       style={{
                                         width: `${Math.min(100, (v / max) * 100)}%`,
                                       }}
@@ -1106,11 +916,6 @@ export default function SupplyChainIntelligence() {
                               </td>
                             );
                           })}
-                          {Array.from({
-                            length: 3 - selectedForCompare.length,
-                          }).map((_, i) => (
-                            <td key={`e-${key}-${i}`} className="p-3"></td>
-                          ))}
                         </tr>
                       ))}
                     </tbody>
@@ -1145,134 +950,88 @@ export default function SupplyChainIntelligence() {
                                 <FaBuilding className="text-slate-600 h-8 w-8" />
                               )}
                             </div>
-                            <div>
-                              <h3 className="font-bold text-[#0a2540] text-lg line-clamp-2">
-                                {s.name}
-                              </h3>
-                            </div>
+                            <h3 className="font-bold text-[#0a2540] text-lg line-clamp-2">
+                              {s.name}
+                            </h3>
                           </div>
                         </th>
                       ))}
-                      {Array.from({
-                        length: 3 - selectedForCompare.length,
-                      }).map((_, i) => (
-                        <th
-                          key={`empty-th-${i}`}
-                          className="p-6 border-b border-slate-200 bg-slate-50/50 w-72"
-                        ></th>
-                      ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/50">
-                    <tr className="hover:bg-slate-100/20 transition-colors">
-                      <td className="p-4 border-r border-slate-200/50 font-medium text-slate-500 text-sm sticky left-0 bg-slate-50 z-10 align-top pt-5">
-                        Categories
-                      </td>
-                      {selectedForCompare.map((s) => (
-                        <td
-                          key={s.id}
-                          className="p-4 text-slate-600 text-sm border-r border-slate-200/50 last:border-0 align-top"
-                        >
-                          <div className="flex flex-wrap gap-1.5">
-                            {s.categories.map((cat, i) => (
-                              <span
-                                key={i}
-                                className="px-2 py-1 bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-wider rounded"
-                              >
-                                {cat}
-                              </span>
-                            ))}
-                          </div>
+                  <tbody className="divide-y divide-slate-200">
+                    {[
+                      [
+                        "Specialties",
+                        (s) =>
+                          s.categories.map((c, i) => (
+                            <span
+                              key={i}
+                              className="px-2 py-1 bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-wider rounded mr-1 mb-1 inline-block"
+                            >
+                              {c}
+                            </span>
+                          )),
+                      ],
+                      [
+                        "Address",
+                        (s) => (
+                          <span className="text-slate-600">{s.address}</span>
+                        ),
+                      ],
+                      [
+                        "Phone",
+                        (s) => (
+                          <span className="text-slate-600">{s.phone}</span>
+                        ),
+                      ],
+                      [
+                        "Email",
+                        (s) =>
+                          s.email !== "Not listed" ? (
+                            <a
+                              href={`mailto:${s.email}`}
+                              className="text-indigo-600 hover:underline"
+                            >
+                              {s.email}
+                            </a>
+                          ) : (
+                            <span className="text-slate-400">Not listed</span>
+                          ),
+                      ],
+                      [
+                        "Website",
+                        (s) =>
+                          s.website && s.website !== "#" ? (
+                            <a
+                              href={s.website}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-indigo-600 hover:underline"
+                            >
+                              {s.website.replace(/^https?:\/\//, "")}
+                            </a>
+                          ) : (
+                            <span className="text-slate-400">Not listed</span>
+                          ),
+                      ],
+                    ].map(([label, render]) => (
+                      <tr
+                        key={label}
+                        className="hover:bg-slate-100/20 transition-colors"
+                      >
+                        <td className="p-4 border-r border-slate-200/50 font-medium text-slate-500 text-sm sticky left-0 bg-slate-50 z-10 align-top pt-5">
+                          {label}
                         </td>
-                      ))}
-                      {Array.from({
-                        length: 3 - selectedForCompare.length,
-                      }).map((_, i) => (
-                        <td
-                          key={`empty-cat-${i}`}
-                          className="p-4 border-r border-slate-200/50"
-                        ></td>
-                      ))}
-                    </tr>
-
-                    <tr className="hover:bg-slate-100/20 transition-colors">
-                      <td className="p-4 border-r border-slate-200/50 font-medium text-slate-500 text-sm sticky left-0 bg-slate-50 z-10">
-                        Company Size
-                      </td>
-                      {selectedForCompare.map((s) => (
-                        <td
-                          key={s.id}
-                          className="p-4 text-slate-600 text-sm border-r border-slate-200/50 last:border-0"
-                        >
-                          {s.employeeString} Employees
-                        </td>
-                      ))}
-                      {Array.from({
-                        length: 3 - selectedForCompare.length,
-                      }).map((_, i) => (
-                        <td
-                          key={`empty-size-${i}`}
-                          className="p-4 border-r border-slate-200/50"
-                        ></td>
-                      ))}
-                    </tr>
-
-                    <tr className="hover:bg-slate-100/20 transition-colors">
-                      <td className="p-4 border-r border-slate-200/50 font-medium text-slate-500 text-sm sticky left-0 bg-slate-50 z-10 align-top pt-5">
-                        Certifications
-                      </td>
-                      {selectedForCompare.map((s) => (
-                        <td
-                          key={s.id}
-                          className="p-4 text-slate-600 text-sm border-r border-slate-200/50 last:border-0 align-top"
-                        >
-                          <ul className="space-y-1">
-                            {s.certifications.map((cert, i) => (
-                              <li key={i} className="flex items-center gap-2">
-                                <FaAward className="text-indigo-600 h-3 w-3" />{" "}
-                                {cert}
-                              </li>
-                            ))}
-                          </ul>
-                        </td>
-                      ))}
-                      {Array.from({
-                        length: 3 - selectedForCompare.length,
-                      }).map((_, i) => (
-                        <td
-                          key={`empty-cert-${i}`}
-                          className="p-4 border-r border-slate-200/50"
-                        ></td>
-                      ))}
-                    </tr>
-
-                    <tr className="hover:bg-slate-100/20 transition-colors">
-                      <td className="p-4 border-r border-slate-200/50 font-medium text-slate-500 text-sm sticky left-0 bg-slate-50 z-10 align-top">
-                        Specific Products
-                      </td>
-                      {selectedForCompare.map((s) => (
-                        <td
-                          key={s.id}
-                          className="p-4 text-slate-600 text-sm border-r border-slate-200/50 last:border-0 align-top"
-                        >
-                          <ul className="list-disc list-inside space-y-1.5">
-                            {s.products.slice(0, 5).map((p, i) => (
-                              <li key={i} className="truncate">
-                                {p}
-                              </li>
-                            ))}
-                          </ul>
-                        </td>
-                      ))}
-                      {Array.from({
-                        length: 3 - selectedForCompare.length,
-                      }).map((_, i) => (
-                        <td
-                          key={`empty-cap-${i}`}
-                          className="p-4 border-r border-slate-200/50"
-                        ></td>
-                      ))}
-                    </tr>
+                        {selectedForCompare.map((s) => (
+                          <td
+                            key={s.id}
+                            className="p-4 text-sm border-r border-slate-200/50 last:border-0 align-top"
+                          >
+                            {render(s)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>

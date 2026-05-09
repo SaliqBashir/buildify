@@ -228,38 +228,93 @@ export default function Predictor() {
           )}
 
           {analysisResult && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 relative z-10">
-              <div className="lg:col-span-1 space-y-4">
-                <div className="bg-slate-50 p-5 rounded-xl border border-slate-200">
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Buy Risk</p>
-                  <p className="text-3xl font-black text-rose-500">{analysisResult.risk_scores.buy_risk}</p>
-                  <p className="text-xs text-slate-400 mt-2">Based on negative sentiment</p>
-                </div>
-                <div className="bg-slate-50 p-5 rounded-xl border border-slate-200">
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Sell Pressure</p>
-                  <p className="text-3xl font-black text-emerald-500">{analysisResult.risk_scores.sell_pressure}</p>
-                  <p className="text-xs text-slate-400 mt-2">Based on positive sentiment</p>
-                </div>
-                <div className={`p-5 rounded-xl border ${
-                  analysisResult.strategy === "Stockpile" 
-                    ? "bg-indigo-50 border-indigo-200" 
-                    : "bg-slate-50 border-slate-200"
-                }`}>
+            <div className="flex flex-col gap-6 relative z-10">
+              {/* Strategy Header */}
+              <div className={`p-6 rounded-2xl border stripe-card-shadow flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
+                analysisResult.strategy.includes("Buy")
+                  ? "bg-indigo-50 border-indigo-200"
+                  : analysisResult.strategy.includes("Sell")
+                  ? "bg-emerald-50 border-emerald-200"
+                  : "bg-slate-50 border-slate-200"
+              }`}>
+                <div className="flex-1">
                   <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Recommended Strategy</p>
-                  <p className={`text-2xl font-bold ${
-                    analysisResult.strategy === "Stockpile" ? "text-indigo-700" : "text-slate-700"
-                  }`}>{analysisResult.strategy}</p>
+                  <h4 className={`text-2xl font-black mb-2 ${
+                    analysisResult.strategy.includes("Buy") ? "text-indigo-700" 
+                    : analysisResult.strategy.includes("Sell") ? "text-emerald-700" 
+                    : "text-slate-700"
+                  }`}>{analysisResult.strategy}</h4>
+                  <p className="text-sm font-medium text-slate-600 border-l-2 pl-3 border-current opacity-80">
+                    {analysisResult.strategy_reason}
+                  </p>
+                </div>
+                <div className="text-left md:text-right md:pl-6 md:border-l border-slate-200/50">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Signals Analyzed</p>
+                  <p className="text-xl font-bold text-[#0a2540]">{analysisResult.metadata.signals_analyzed}</p>
                 </div>
               </div>
-              <div className="lg:col-span-2 bg-slate-50 p-6 rounded-xl border border-slate-200">
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Top Disruptive News ({analysisResult.metadata.signals_analyzed} signals analyzed)</p>
-                <div className="space-y-4">
-                  {analysisResult.top_news.map((news, idx) => (
-                    <div key={idx} className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
-                      <p className="text-sm font-medium text-[#0a2540]">{news}</p>
+
+              {/* Graphic Indicators */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* Buy Risk Card */}
+                <div className="bg-white border border-slate-200 p-6 rounded-2xl stripe-card-shadow relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/10 rounded-full blur-3xl -mr-10 -mt-10 transition-transform group-hover:scale-110"></div>
+                  
+                  <div className="flex justify-between items-end mb-6 relative z-10">
+                    <div>
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Buy Risk</p>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-4xl font-black text-rose-500">{analysisResult.risk_scores.buy_risk}</span>
+                      </div>
                     </div>
-                  ))}
+                    <div className="p-3 bg-rose-50 rounded-xl">
+                      <FaArrowUp className="text-rose-500 text-xl" />
+                    </div>
+                  </div>
+
+                  <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden relative z-10 shadow-inner">
+                    <div 
+                      className="h-full bg-gradient-to-r from-rose-400 to-rose-500 rounded-full shadow-[0_0_10px_rgba(244,63,94,0.5)] transition-all duration-1000 ease-out"
+                      style={{ width: analysisResult.risk_scores.buy_risk }}
+                    ></div>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-3 relative z-10 font-medium">Driven by negative supply chain sentiment</p>
                 </div>
+
+                {/* Sell Pressure Card */}
+                <div className="bg-white border border-slate-200 p-6 rounded-2xl stripe-card-shadow relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-3xl -mr-10 -mt-10 transition-transform group-hover:scale-110"></div>
+                  
+                  <div className="flex justify-between items-end mb-6 relative z-10">
+                    <div>
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Sell Pressure</p>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-4xl font-black text-emerald-500">{analysisResult.risk_scores.sell_pressure}</span>
+                      </div>
+                    </div>
+                    <div className="p-3 bg-emerald-50 rounded-xl">
+                      <FaArrowDown className="text-emerald-500 text-xl" />
+                    </div>
+                  </div>
+
+                  <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden relative z-10 shadow-inner">
+                    <div 
+                      className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.5)] transition-all duration-1000 ease-out"
+                      style={{ width: analysisResult.risk_scores.sell_pressure }}
+                    ></div>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-3 relative z-10 font-medium">Driven by positive market availability</p>
+                </div>
+
+              </div>
+
+              {/* AI Disclaimer */}
+              <div className="mt-2 flex items-start gap-3 bg-amber-50/50 border border-amber-200/60 p-3 rounded-xl text-amber-700/80">
+                <FaExclamationTriangle className="text-amber-500/80 mt-0.5 shrink-0" />
+                <p className="text-xs font-medium leading-relaxed">
+                  <strong>AI Disclaimer:</strong> AI can make mistakes. Always verify critical supply chain data independently.
+                </p>
               </div>
             </div>
           )}

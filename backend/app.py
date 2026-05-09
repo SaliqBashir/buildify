@@ -103,10 +103,21 @@ def analyze_commodity():
     buy_risk = (weighted_neg / total_conf * 100) if total_conf > 0 else 0
     sell_pressure = (weighted_pos / total_conf * 100) if total_conf > 0 else 0
 
+    if buy_risk > 60:
+        strategy = "Stockpile (Buy)"
+        reason = "High supply chain risks detected. Recommend stockpiling inventory to avoid future shortages."
+    elif sell_pressure > 60:
+        strategy = "Liquidate (Sell)"
+        reason = "Favorable market conditions for selling. Consider liquidating excess inventory."
+    else:
+        strategy = "Hold (Neutral)"
+        reason = "Market conditions are relatively stable. Maintain current inventory levels."
+
     return jsonify({
         "metadata": {"commodity": commodity, "region": region, "signals_analyzed": len(headlines)},
         "risk_scores": {"buy_risk": f"{buy_risk:.1f}%", "sell_pressure": f"{sell_pressure:.1f}%"},
-        "strategy": "Stockpile" if buy_risk > 60 else "Neutral",
+        "strategy": strategy,
+        "strategy_reason": reason,
         "top_news": headlines[:3]
     })
 

@@ -31,9 +31,45 @@ ChartJS.register(
 export default function Predictor() {
   const [mounted, setMounted] = useState(false);
 
+  // Live Analysis State
+  const [analysisCommodity, setAnalysisCommodity] = useState("");
+  const [analysisRegion, setAnalysisRegion] = useState("");
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState(null);
+  const [analysisError, setAnalysisError] = useState(null);
+
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  const handleAnalyze = async () => {
+    if (!analysisCommodity.trim() || !analysisRegion.trim()) return;
+    setAnalysisLoading(true);
+    setAnalysisError(null);
+    setAnalysisResult(null);
+
+    try {
+      const response = await fetch("http://127.0.0.1:5001/api/analyze-commodity", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ commodity: analysisCommodity, region: analysisRegion })
+      });
+
+      if (!response.ok) {
+        if (response.status === 404) {
+           throw new Error("No relevant geopolitical news found for this commodity and region.");
+        }
+        throw new Error("Failed to analyze commodity risk.");
+      }
+
+      const data = await response.json();
+      setAnalysisResult(data);
+    } catch (err) {
+      setAnalysisError(err.message);
+    } finally {
+      setAnalysisLoading(false);
+    }
+  };
 
   const predictions = [
     {
@@ -142,8 +178,95 @@ export default function Predictor() {
           </div>
         </div>
 
+        {/* Live Geopolitical Risk Analysis Section */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-8 stripe-card-shadow relative overflow-hidden">
+          <div className="absolute top-0 left-0 -mt-20 -ml-20 w-72 h-72 bg-rose-500/5 rounded-full blur-3xl pointer-events-none"></div>
+          
+          <h3 className="text-2xl font-bold text-[#0a2540] mb-2 flex items-center gap-2 relative z-10">
+            <BsShieldCheck className="text-indigo-600" /> Live Geopolitical Risk Analysis
+          </h3>
+          <p className="text-slate-500 mb-6 text-sm relative z-10">
+            Analyze real-time news and sentiment to determine supply chain risks for specific commodities and regions using FinBERT.
+          </p>
+
+          <div className="flex flex-col md:flex-row gap-4 relative z-10 mb-8">
+            <div className="flex-1">
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Commodity</label>
+              <input
+                type="text"
+                value={analysisCommodity}
+                onChange={(e) => setAnalysisCommodity(e.target.value)}
+                placeholder="e.g. Lithium, Copper, Wheat"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-indigo-500 outline-none transition-colors text-[#0a2540] font-medium"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Region</label>
+              <input
+                type="text"
+                value={analysisRegion}
+                onChange={(e) => setAnalysisRegion(e.target.value)}
+                placeholder="e.g. Asia, South America, Global"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-indigo-500 outline-none transition-colors text-[#0a2540] font-medium"
+              />
+            </div>
+            <div className="flex items-end">
+              <button
+                onClick={handleAnalyze}
+                disabled={analysisLoading || !analysisCommodity.trim() || !analysisRegion.trim()}
+                className="px-8 py-3 bg-[#0a2540] text-white hover:bg-indigo-600 disabled:bg-slate-300 disabled:text-slate-500 font-bold rounded-xl transition-all h-[46px] whitespace-nowrap shadow-md"
+              >
+                {analysisLoading ? "Analyzing News..." : "Analyze Risk"}
+              </button>
+            </div>
+          </div>
+
+          {analysisError && (
+            <div className="bg-rose-50 border border-rose-200 text-rose-600 p-4 rounded-xl mb-6 relative z-10 text-sm font-medium">
+              {analysisError}
+            </div>
+          )}
+
+          {analysisResult && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 relative z-10">
+              <div className="lg:col-span-1 space-y-4">
+                <div className="bg-slate-50 p-5 rounded-xl border border-slate-200">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Buy Risk</p>
+                  <p className="text-3xl font-black text-rose-500">{analysisResult.risk_scores.buy_risk}</p>
+                  <p className="text-xs text-slate-400 mt-2">Based on negative sentiment</p>
+                </div>
+                <div className="bg-slate-50 p-5 rounded-xl border border-slate-200">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Sell Pressure</p>
+                  <p className="text-3xl font-black text-emerald-500">{analysisResult.risk_scores.sell_pressure}</p>
+                  <p className="text-xs text-slate-400 mt-2">Based on positive sentiment</p>
+                </div>
+                <div className={`p-5 rounded-xl border ${
+                  analysisResult.strategy === "Stockpile" 
+                    ? "bg-indigo-50 border-indigo-200" 
+                    : "bg-slate-50 border-slate-200"
+                }`}>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Recommended Strategy</p>
+                  <p className={`text-2xl font-bold ${
+                    analysisResult.strategy === "Stockpile" ? "text-indigo-700" : "text-slate-700"
+                  }`}>{analysisResult.strategy}</p>
+                </div>
+              </div>
+              <div className="lg:col-span-2 bg-slate-50 p-6 rounded-xl border border-slate-200">
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Top Disruptive News ({analysisResult.metadata.signals_analyzed} signals analyzed)</p>
+                <div className="space-y-4">
+                  {analysisResult.top_news.map((news, idx) => (
+                    <div key={idx} className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                      <p className="text-sm font-medium text-[#0a2540]">{news}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
         <h3 className="text-xl font-bold text-[#0a2540] flex items-center gap-2 mt-12 mb-6">
-          <FaBoxOpen className="text-indigo-600" /> Actionable Insights
+          <FaBoxOpen className="text-indigo-600" /> Actionable Insights (Market Overview)
         </h3>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

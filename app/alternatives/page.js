@@ -16,9 +16,13 @@ export default function Alternatives() {
     setResults(null);
     
     try {
-      const response = await fetch(`http://127.0.0.1:5000/api/alternatives/${encodeURIComponent(query)}`);
+      const response = await fetch(`http://127.0.0.1:5001/api/alternatives/${encodeURIComponent(query)}`);
       
       if (!response.ok) {
+        if (response.status === 404) {
+          setResults([]); // Empty results
+          return;
+        }
         throw new Error("Failed to fetch alternatives");
       }
       
@@ -44,7 +48,7 @@ export default function Alternatives() {
       }
     } catch (error) {
       console.error("Error fetching alternatives:", error);
-      alert("Could not connect to the Python backend. Is it running on port 5000?");
+      alert("Could not connect to the Python backend. Is it running on port 5001?");
     } finally {
       setLoading(false);
     }

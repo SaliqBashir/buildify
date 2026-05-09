@@ -1,73 +1,72 @@
+"""
+app.py – Buildify Backend (M4 Silicon Dual‑Engine + Gemini Alternatives)
+Migrated to google-genai SDK (2026)
+"""
+
 import os
 import logging
+import json
 import torch
-import requests
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from dotenv import load_dotenv
+
+# --- NEW Gemini SDK ---
+from google import genai
+from google.genai import types
+
+# --- Your existing NLP / crawling imports (unchanged) ---
 from bs4 import BeautifulSoup
 from gnews import GNews
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
 from sentence_transformers import SentenceTransformer, util
 
-# --- SYSTEM SETUP ---
+# ================== SYSTEM SETUP ==================
+load_dotenv()  # loads GEMINI_API_KEY from .env
+
+# New Gemini client (automatically reads GEMINI_API_KEY from environment)
+genai_client = genai.Client()
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 logging.getLogger("transformers").setLevel(logging.ERROR)
 
-app = Flask(__name__)
-CORS(app) # Enable CORS for frontend integration
-
-# --- GLOBAL AI INITIALIZATION (M4 Optimized) ---
-print("🚀 Initializing M4 Silicon Dual-Engine...")
+# Device selection for PyTorch models (unchanged)
 device = "mps" if torch.backends.mps.is_available() else "cpu"
+print(f"Using device: {device}")
 
-# Engine 1: Sentiment & Risk Analysis (FinBERT)
+# --- Engine 1: Sentiment & Risk Analysis (FinBERT) (unchanged) ---
 tokenizer = AutoTokenizer.from_pretrained("ProsusAI/finbert")
-sentiment_model = AutoModelForSequenceClassification.from_pretrained("ProsusAI/finbert").to(device)
-nlp_sentiment = pipeline("sentiment-analysis", model=sentiment_model, tokenizer=tokenizer, device=device)
+sentiment_model = AutoModelForSequenceClassification.from_pretrained(
+    "ProsusAI/finbert"
+).to(device)
+nlp_sentiment = pipeline(
+    "sentiment-analysis", model=sentiment_model, tokenizer=tokenizer, device=device
+)
 
-# Engine 2: Semantic Similarity for Alternatives (MiniLM)
-similarity_model = SentenceTransformer('all-MiniLM-L6-v2', device=device)
+# --- Engine 2: Semantic Similarity (MiniLM) – still loaded for potential future use ---
+similarity_model = SentenceTransformer("all-MiniLM-L6-v2", device=device)
 
-# --- KNOWLEDGE BASE ---
-MATERIAL_LOGIC = {
-    "copper": ["Aluminium (Al) 1350", "PEX-B", "Stainless Steel 316L", "Silver (Ag)"],
-    "rice": ["Sorghum (Milo)", "Pearl Millet (Bajra)", "Cassava-based Analog Rice", "Broken Maize"],
-    "steel": ["Aluminum 6061", "Carbon Fiber Composite", "Titanium Grade 5"],
-    "cotton": ["Polyester", "Recycled PET Fiber", "Bamboo Fiber", "Hemp"],
-    "plastic": ["Bioplastic PLA", "Recycled HDPE", "Mycelium Composite"],
-    "aluminum": ["Magnesium Alloy", "Carbon Fiber Reinforced Polymer", "Titanium Grade 2"]
-}
 
-# --- HELPER FUNCTIONS ---
-
+# ================== HELPER FUNCTIONS (unchanged) ==================
 def build_query(commodity, region):
-    keywords = ["supply chain", "shortage", "conflict", "export ban", "tariff", "disruption"]
+    keywords = [
+        "supply chain",
+        "shortage",
+        "conflict",
+        "export ban",
+        "tariff",
+        "disruption",
+    ]
     joined_keywords = " OR ".join([f'"{kw}"' for kw in keywords])
     return f'"{commodity}" AND ({joined_keywords}) AND "{region}"'
 
-def fetch_web_alternatives(target_material):
-    search_query = f"industrial {target_material} supply chain substitutes alternatives grades"
-    headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36..."}
-    
-    web_candidates = []
-    try:
-        search_url = f"https://www.bing.com/search?q={search_query.replace(' ', '+')}"
-        response = requests.get(search_url, headers=headers, timeout=10)
-        soup = BeautifulSoup(response.text, "html.parser")
-        
-        for tag in soup.find_all(["p", "li", "span"], limit=80):
-            text = tag.get_text(strip=True)
-            if 8 < len(text) < 90 and not any(n in text.lower() for n in ["bing", "microsoft", "sign in"]):
-                web_candidates.append(text)
-    except Exception as e:
-        print(f"Web fetch error: {e}")
-    
-    kb_options = MATERIAL_LOGIC.get(target_material.lower(), [])
-    combined = list(set(web_candidates + kb_options))
-    return combined, kb_options
 
-# --- API ROUTES ---
+# ================== FLASK APP ==================
+app = Flask(__name__)
+CORS(app)
 
+
+# ================== ROUTE: analyze-commodity (unchanged) ==================
 @app.route("/api/analyze-commodity", methods=["POST"])
 def analyze_commodity():
     """Analyzes geopolitical risk and sentiment for a specific commodity/region."""
@@ -113,43 +112,78 @@ def analyze_commodity():
         strategy = "Hold (Neutral)"
         reason = "Market conditions are relatively stable. Maintain current inventory levels."
 
-    return jsonify({
-        "metadata": {"commodity": commodity, "region": region, "signals_analyzed": len(headlines)},
-        "risk_scores": {"buy_risk": f"{buy_risk:.1f}%", "sell_pressure": f"{sell_pressure:.1f}%"},
-        "strategy": strategy,
-        "strategy_reason": reason,
-        "top_news": headlines[:3]
-    })
+    return jsonify(
+        {
+            "metadata": {
+                "commodity": commodity,
+                "region": region,
+                "signals_analyzed": len(headlines),
+            },
+            "risk_scores": {
+                "buy_risk": f"{buy_risk:.1f}%",
+                "sell_pressure": f"{sell_pressure:.1f}%",
+            },
+            "strategy": strategy,
+            "strategy_reason": reason,
+            "top_news": headlines[:3],
+        }
+    )
 
-@app.route('/api/alternatives/<material>', methods=['GET'])
+
+# ================== ROUTE: alternatives (NEW – Gemini powered) ==================
+@app.route("/api/alternatives/<material>", methods=["GET"])
 def get_alternatives(material):
-    """Fetches and ranks industrial substitutes using semantic similarity."""
+    """
+    Uses Gemini (gemini-2.5-flash) to return a list of alternative materials
+    with savings, pros/cons, and supplier hints.
+    """
+    prompt = f"""
+You are an industrial supply‑chain expert. A client wants to replace "{material}".
+Suggest 3-5 realistic alternative materials or grades.
+Output ONLY a JSON array (no markdown, no backticks). Each object must contain:
+- name: string (the alternative material)
+- match_score: int 0-100 (how close a substitute it is)
+- savings_pct: int (negative means cheaper, positive means more expensive)
+- pros: list of 2-3 strings (advantages)
+- cons: list of 2-3 strings (disadvantages)
+- sustainability: string ("Better", "Similar", "Worse")
+- supplier_types: list of 2-3 strings (e.g., "Regional distributors", "Direct mills")
+"""
+
     try:
-        all_options, kb_options = fetch_web_alternatives(material)
-        if not all_options:
-            return jsonify({"error": "No materials found"}), 404
+        response = genai_client.models.generate_content(
+            model="gemini-2.5-flash",  # latest fast model
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.1,  # low temperature for structured output
+                response_mime_type="application/json",
+            ),
+        )
 
-        all_embeddings = similarity_model.encode(all_options, convert_to_tensor=True)
-        query_embedding = similarity_model.encode(material, convert_to_tensor=True)
-        hits = util.semantic_search(query_embedding, all_embeddings, top_k=10)[0]
+        raw = response.text.strip()
 
-        results = []
-        for hit in hits:
-            if hit['score'] > 0.30:
-                name = all_options[hit['corpus_id']]
-                results.append({
-                    "name": name,
-                    "score": round(float(hit['score']), 2),
-                    "is_kb_verified": name in kb_options
-                })
+        # Clean potential markdown fences if Gemini still wraps the JSON
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1]
+        if raw.endswith("```"):
+            raw = raw.rsplit("\n", 1)[0]
 
-        return jsonify({
-            "material": material,
-            "alternatives": results
-        })
+        alternatives = json.loads(raw)
+
+        if not isinstance(alternatives, list):
+            raise ValueError("Gemini output is not a JSON array")
+
+        return jsonify({"material": material, "alternatives": alternatives})
+
+    except json.JSONDecodeError as e:
+        logging.exception("Gemini returned invalid JSON")
+        return jsonify({"error": f"Invalid JSON from AI: {str(e)}"}), 500
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        logging.exception("Gemini alternative generation failed")
+        return jsonify({"error": f"AI generation error: {str(e)}"}), 500
 
-if __name__ == '__main__':
-    # Using threaded=False for MPS stability with PyTorch pipelines
+
+# ================== RUN ==================
+if __name__ == "__main__":
+    # threaded=False avoids issues with PyTorch on MPS
     app.run(port=5001, debug=True, threaded=False)

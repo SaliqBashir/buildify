@@ -1,5 +1,5 @@
 """
-app.py – Buildify Backend
+app.py – import.me Backend
 Engines: FinBERT (sentiment/risk) + Gemini 2.5 Flash (alternatives + supplier finder)
 """
 

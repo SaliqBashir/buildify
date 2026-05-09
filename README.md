@@ -3,7 +3,7 @@
 <br/>
 <br/>
 
-![Buildify Banner](https://img.shields.io/badge/Team%20Rocket-🚀-FF6B6B?style=for-the-badge&labelColor=0A0E27)
+![import.me Banner](https://img.shields.io/badge/Team%20Rocket-🚀-FF6B6B?style=for-the-badge&labelColor=0A0E27)
 ![Status](https://img.shields.io/badge/Status-Active%20Development-00D98E?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-6C63FF?style=for-the-badge)
 ![Version](https://img.shields.io/badge/Version-1.0.0-9945FF?style=for-the-badge)
@@ -19,7 +19,7 @@
 
 <br/>
 
-[![Stars](https://img.shields.io/github/stars/teamrocket/buildify?style=social)](https://github.com/teamrocket/buildify)
+[![Stars](https://img.shields.io/github/stars/teamrocket/import.me?style=social)](https://github.com/teamrocket/import.me)
 [![Made by Team Rocket](https://img.shields.io/badge/Made%20by-Team%20Rocket-FF6B6B?style=flat-square)](https://github.com/teamrocket)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Ready-3178C6?style=flat-square)](https://www.typescriptlang.org/)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square)](https://www.python.org/)
@@ -67,7 +67,7 @@ The global supply chain is **fundamentally broken**:
 
 | Challenge | Impact | Solution |
 |-----------|--------|----------|
-| ⏱️ **Months** of manual research | **6+ months per relationship** | ⚡ **Seconds** with Buildify |
+| ⏱️ **Months** of manual research | **6+ months per relationship** | ⚡ **Seconds** with import.me |
 | 📊 Drowning in spreadsheets | **40% wasted time** on data prep | 🤖 Automatic data normalization |
 | 🔍 Information scattered everywhere | **Billions in inefficiency** | 🕷️ Real-time web intelligence |
 | 🎯 No intelligent matching | **Hit or miss** supplier quality | 🧠 AI-powered semantic matching |
@@ -76,7 +76,7 @@ The global supply chain is **fundamentally broken**:
 
 <br/>
 
-### ✨ Meet Buildify
+### ✨ Meet import.me
 
 We've engineered an **AI-powered intelligence engine** that transforms supplier sourcing from a **bureaucratic nightmare** into a **real-time, intelligent experience**.
 
@@ -413,7 +413,7 @@ Semantic Vector Engine
 <br/>
 
 ```
-buildify/
+import.me/
 │
 ├── 📱 app/                          # Next.js Frontend Application
 │   ├── page.js                      # Homepage (Hero & Demo)
@@ -503,8 +503,8 @@ Before you begin, ensure you have:
 <br/>
 
 ```bash
-git clone https://github.com/teamrocket/buildify.git
-cd buildify
+git clone https://github.com/teamrocket/import.me.git
+cd import.me
 ```
 
 </details>
@@ -601,7 +601,7 @@ cd backend && python app.py
 Open your browser to **http://localhost:3000**
 
 You should see:
-- ✓ Buildify hero interface
+- ✓ import.me hero interface
 - ✓ Supplier search bar
 - ✓ Interactive demo
 
@@ -672,7 +672,7 @@ If you see any errors, check the terminal output and verify your API credentials
 
 <br/>
 
-**Real-world scenarios showing Buildify's power**
+**Real-world scenarios showing import.me's power**
 
 <br/>
 
@@ -910,8 +910,8 @@ Team Rocket welcomes contributions from **developers**, **designers**, **data sc
 
 ```bash
 # 1️⃣ Fork the repository
-git clone https://github.com/YOUR_USERNAME/buildify.git
-cd buildify
+git clone https://github.com/YOUR_USERNAME/import.me.git
+cd import.me
 
 # 2️⃣ Create a feature branch
 git checkout -b feature/your-feature-name
@@ -1044,7 +1044,7 @@ We build tools that transform chaos into clarity. **import.me isn't just softwar
 
 <br/>
 
-### Why Buildify Matters
+### Why import.me Matters
 
 <br/>
 
@@ -1067,7 +1067,7 @@ The global supply chain moves **$27 trillion annually**. Yet sourcing remains st
 
 ### 💪 Our Impact
 
-Buildify changes this by:
+import.me changes this by:
 
 <div align="center">
 
@@ -1131,7 +1131,7 @@ Despite the tight constraints, we created a working prototype that demonstrates:
 
 <br/>
 
-If Buildify is helping you discover suppliers faster, consider:
+If import.me is helping you discover suppliers faster, consider:
 
 ⭐ **Star this repository** — Shows you believe in our vision  
 🔗 **Share with your network** — Spread the word about intelligent sourcing  

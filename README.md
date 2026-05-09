@@ -10,7 +10,7 @@
 
 <br/>
 
-# ✨ BUILDIFY ✨
+# ✨ import.me ✨
 
 ### **The Future of B2B Supplier Intelligence**
 
@@ -80,7 +80,7 @@ The global supply chain is **fundamentally broken**:
 
 We've engineered an **AI-powered intelligence engine** that transforms supplier sourcing from a **bureaucratic nightmare** into a **real-time, intelligent experience**.
 
-**Using cutting-edge LLMs, semantic search, and automated data extraction, we deliver:**
+**Using cutting-edge LLMs, semantic search, and automated data extraction, import.me delivers:**
 
 <div align="center">
 
@@ -678,88 +678,7 @@ If you see any errors, check the terminal output and verify your API credentials
 
 </div>
 
-<details open>
-<summary><b>📍 Example 1: Finding Aluminum Suppliers</b></summary>
 
-<br/>
-
-**Query:**
-```javascript
-const query = "ISO 9001 certified aluminum extrusion manufacturers 
-              in Southeast Asia capable of 50 tons/month";
-```
-
-**Response:**
-```javascript
-{
-  suppliers: [
-    {
-      id: "supplier_001",
-      name: "SkyMetal Manufacturing",
-      location: "Bangkok, Thailand",
-      matchScore: 96.2,
-      capabilities: ["Aluminum Extrusion", "CNC Machining"],
-      certifications: ["ISO 9001:2015", "ISO 14001:2015"],
-      monthlyCapacity: "60 tons",
-      contactEmail: "sourcing@skymetal.co.th",
-      phone: "+66-2-123-4567",
-      confidence: 0.98
-    },
-    // ... more ranked suppliers
-  ],
-  processedIn: "2.3 seconds",
-  dataSourcesQueried: 847
-}
-```
-
-**Impact:** From 6-month research → 2.3 seconds
-
-</details>
-
-<br/>
-
-<details open>
-<summary><b>📊 Example 2: Comparative Analysis</b></summary>
-
-<br/>
-
-```javascript
-// Compare suppliers side-by-side
-const comparison = await fetchSupplierComparison({
-  suppliers: ["supplier_001", "supplier_002", "supplier_003"],
-  metrics: ["price", "leadTime", "certifications", "capacity"]
-});
-
-// Get geographic distribution
-const mapData = await getSupplierGeolocation(suppliers);
-```
-
-**Result:** Interactive comparison dashboard with geospatial visualization
-
-</details>
-
-<br/>
-
-<details open>
-<summary><b>📧 Example 3: Automated Outreach</b></summary>
-
-<br/>
-
-```javascript
-// Generate personalized outreach emails
-const emails = await generateOutreachEmails({
-  suppliers: rankedSuppliers.slice(0, 5),
-  company: "TechCorp Industries",
-  requirements: "Aluminum extrusion parts"
-});
-
-// Send via integration
-await sendOutreach(emails);
-```
-
-**Result:** 5 personalized emails sent in seconds, with tracking
-
-</details>
 
 ---
 
@@ -784,13 +703,12 @@ await sendOutreach(emails);
 
 <div align="center">
 
-| Operation | Target | Status |
-|-----------|--------|--------|
-| Query Processing | < 2.5 seconds | ✅ Optimized |
-| Supplier Ranking | < 1.2 seconds | ✅ Optimized |
-| Geospatial Render | < 500ms | ✅ Optimized |
-| Contact Extraction | 99.2% accuracy | ✅ Verified |
-| API Latency (p95) | < 300ms | ✅ Optimized |
+| Operation | Target |
+|-----------|--------|
+| Query Processing | < 2.5 seconds |
+| Supplier Ranking | < 1.2 seconds |
+| Geospatial Render | < 500ms |
+| Contact Extraction | 99.2% accuracy |
 
 </div>
 
@@ -854,10 +772,7 @@ Database Capacity:   100M+ suppliers
 ✅ **Input Validation** — All user inputs sanitized & validated  
 ✅ **API Authentication** — JWT-based token system  
 ✅ **Rate Limiting** — DDoS protection & abuse prevention  
-✅ **HTTPS/TLS** — Encrypted data in transit (everywhere)  
-✅ **CORS Policy** — Strict cross-origin controls  
-✅ **SQL Injection Prevention** — Parameterized queries  
-
+✅ **HTTPS/TLS** — Encrypted data in transit
 </details>
 
 <br/>
@@ -872,11 +787,7 @@ Database Capacity:   100M+ suppliers
 ✅ **Data Encryption** — AES-256 at rest  
 ✅ **Audit Logging** — Complete activity trails  
 ✅ **Data Retention** — Configurable policies  
-✅ **Privacy by Design** — Privacy-first architecture  
-
-</details>
-
-<br/>
+✅ **Data Encryption** — At-rest encryption
 
 <details open>
 <summary><b>✔️ Verification & Validation</b></summary>
@@ -911,46 +822,14 @@ Database Capacity:   100M+ suppliers
 </div>
 
 <details open>
-<summary><b>🧪 Testing Commands</b></summary>
+<summary><b>🧪 Code Quality</b></summary>
 
 <br/>
 
 ```bash
 # Lint code quality
 npm run lint
-
-# Frontend unit tests
-npm test
-
-# Backend API tests
-cd backend && pytest
-
-# End-to-end integration tests
-npm run test:e2e
-
-# Performance profiling
-npm run analyze
-
-# Type checking
-npm run type-check
 ```
-
-</details>
-
-<br/>
-
-<details open>
-<summary><b>📈 Quality Metrics</b></summary>
-
-<br/>
-
-| Metric | Current | Target |
-|--------|---------|--------|
-| Code Coverage | 87% | 95%+ |
-| Type Safety | 100% critical paths | 100% |
-| API Tests | 200+ cases | Growing |
-| Performance | Continuous monitoring | SLA compliance |
-| Security | Automated scanning | Zero vulnerabilities |
 
 </details>
 
@@ -975,8 +854,8 @@ npm run type-check
 
 - [ ] WebSocket live supplier updates
 - [ ] Predictive lead scoring (ML-powered)
+- [ ] Automated compliance mo
 - [ ] Automated compliance monitoring
-- [ ] Price fluctuation alerts
 
 </details>
 
@@ -984,9 +863,8 @@ npm run type-check
 <summary><b>📅 Q3 2026: Enterprise Features</b></summary>
 
 - [ ] Multi-user workspace collaboration
-- [ ] Advanced role-based access control (RBAC)
-- [ ] Custom API integrations (Zapier, Make)
-- [ ] White-label solution for partners
+- [ ] Advanced role-based access control
+- [ ] Custom API integrations
 
 </details>
 
@@ -994,7 +872,6 @@ npm run type-check
 <summary><b>📅 Q4 2026: AI-First Platform</b></summary>
 
 - [ ] Generative supplier matching
-- [ ] Autonomous negotiation assistant
 - [ ] Supply chain risk prediction
 - [ ] Market trend analysis engine
 
@@ -1005,20 +882,7 @@ npm run type-check
 
 - [ ] 150+ country coverage
 - [ ] 50+ language support
-- [ ] Regional data centers (APAC, EU, Americas)
-- [ ] Enterprise SLA guarantees
-
-</details>
-
-<details open>
-<summary><b>🚀 Moonshot Initiatives</b></summary>
-
-- [ ] AR supplier facility virtual tours
-- [ ] IoT manufacturing data integration
-- [ ] Blockchain supplier verification
-- [ ] Quantum-speed semantic search
-- [ ] Autonomous procurement agents
-
+- [ ] Regional data center
 </details>
 
 ---
@@ -1107,7 +971,7 @@ git push origin feature/your-feature-name
 
 <br/>
 
-### The Visionaries Behind Buildify
+### The Visionaries Behind import.me
 
 <br/>
 
@@ -1166,16 +1030,7 @@ Our mission: **Democratize supply chain intelligence for companies of all sizes.
 
 <br/>
 
-We build tools that transform chaos into clarity. **Buildify isn't just software**—it's a mission to democratize supply chain intelligence and empower companies of all sizes to source like enterprises.
-
-<br/>
-
-### 🤝 Connect with Team Rocket
-
-[![Website](https://img.shields.io/badge/Website-team--rocket.dev-FF6B6B?style=for-the-badge)](https://team-rocket.dev)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-@teamrocket-0A66C2?style=for-the-badge)](https://linkedin.com/company/teamrocket)
-[![Twitter](https://img.shields.io/badge/Twitter-@TeamRocketHQ-1DA1F2?style=for-the-badge)](https://twitter.com/teamrockethq)
-[![Email](https://img.shields.io/badge/Email-hello@teamrocket.dev-FF6B6B?style=for-the-badge)](mailto:hello@teamrocket.dev)
+We build tools that transform chaos into clarity. **import.me isn't just software**—it's a mission to democratize supply chain intelligence and empower companies of all sizes to source like enterprises.
 
 </div>
 
@@ -1256,74 +1111,22 @@ We're building toward a world where:
 
 </div>
 
-Buildify was born at a **hackathon** where Team Rocket identified a massive pain point:
+import.me was built at a **48-hour hackathon** with only **14 hours of actual coding time** by Team Rocket.
 
-**Every manufacturing company struggles with supplier discovery.**
-
-<div align="center">
-
-| Milestone | Achievement | Timeline |
-|-----------|-------------|----------|
-| 🚀 **48 hours** | Built first prototype | Day 1-2 |
-| 📈 **2 weeks** | Working MVP | Post-hackathon |
-| 🏆 **Today** | Most advanced supplier intelligence platform | Ongoing |
-
-</div>
-
-<br/>
+Despite the tight constraints, we created a working prototype that demonstrates:
+- Real-time supplier discovery
+- AI-powered semantic matching
+- Full-stack integration (frontend + backend)
+- Production-ready architecture
 
 ### Why We Stand Out
 
 <div align="center">
 
-✅ **Real-Time Intelligence** — Live data, not stale databases  
+✅ **Real-Time Intelligence** — Live data integration  
 ✅ **AI-Native Architecture** — Semantic understanding built-in  
-✅ **Proven Accuracy** — 99.2% match precision  
-✅ **Production Ready** — Battle-tested, enterprise-grade  
-✅ **Elite Team** — 5 world-class engineers, unified vision  
-
-</div>
-
-<br/>
-
-### Awards & Recognition
-
-🥇 **[Hackathon Name]** — Best Supply Chain Innovation  
-🥇 Selected for acceleration program  
-🥇 Featured in industry publications  
-
-<div align="center">
-
-> **From hackathon prototype to production-grade platform in 2 weeks.**
-
-</div>  
-
----
-
-<br/>
-
-<div align="center">
-
-## 📜 License
-
-<br/>
-
-Buildify is released under the **MIT License**, making it free for commercial and non-commercial use.
-
-Read the [LICENSE](./LICENSE) file for full legal terms.
-
-**TL;DR:** You can use, modify, and distribute Buildify freely. Just give credit to Team Rocket.
-
-<br/>
-
-</div>
-
----
-
-<br/>
-
-<div align="center">
-
+✅ **Production Ready** — Enterprise-grade codebase  
+✅ **Elite Team** — Full-stack engineers with deep expertise  
 ## 🌟 Show Your Support
 
 <br/>
@@ -1337,7 +1140,7 @@ If Buildify is helping you discover suppliers faster, consider:
 🚀 **Contribute** — Join our mission to transform supply chains  
 
 <br/>
-
+import.me
 </div>
 
 ---
@@ -1363,21 +1166,15 @@ If Buildify is helping you discover suppliers faster, consider:
 
 <br/>
 
-[![Try Buildify](https://img.shields.io/badge/Try%20Buildify%20Now-FF6B6B?style=for-the-badge&logoColor=white)](https://buildify.dev)
-[![Read Docs](https://img.shields.io/badge/Read%20Documentation-6C63FF?style=for-the-badge&logoColor=white)](https://docs.buildify.dev)
-[![Join Community](https://img.shields.io/badge/Join%20Community-9945FF?style=for-the-badge&logoColor=white)](https://discord.gg/teamrocket)
-
-<br/>
-
 ```
 ╔════════════════════════════════════════════════════════╗
-║  🚀 Team Rocket × Buildify × The Future of Sourcing 🚀 ║
+║  🚀 Team Rocket × import.me × The Future of Sourcing 🚀 ║
 ╚════════════════════════════════════════════════════════╝
 ```
 
 <br/>
 
-**Made with 🔥 by [Team Rocket](https://teamrocket.dev)**
+**Made with 🔥 by Team Rocket**
 
 *"We don't just build software. We build the infrastructure of tomorrow's supply chains."*
 

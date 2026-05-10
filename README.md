@@ -17,6 +17,8 @@
 *Where AI meets supply chain. Where data meets decisions.*  
 *Where business finds its perfect manufacturing partner.*
 
+### Link for deployement
+<a href="https://testify-gh66.onrender.com/">Click me</a>
 <br/>
 
 [![Stars](https://img.shields.io/github/stars/teamrocket/import.me?style=social)](https://github.com/teamrocket/import.me)
